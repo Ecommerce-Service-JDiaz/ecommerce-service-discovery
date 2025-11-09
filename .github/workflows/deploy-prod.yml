@@ -13,6 +13,8 @@ env:
   KUBERNETES_NAMESPACE: production
   ENVIRONMENT: prod
   PROJECT_VERSION: 0.1.0
+  AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP_PROD }}
+  AZURE_AKS_CLUSTER_NAME: ${{ secrets.AZURE_AKS_CLUSTER_NAME_PROD }}
 
 jobs:
   build-and-push:
@@ -74,8 +76,8 @@ jobs:
       - name: Azure Kubernetes Service set context
         uses: azure/aks-set-context@v3
         with:
-          resource-group: ${{ secrets.AZURE_RESOURCE_GROUP }}
-          cluster-name: ${{ secrets.AZURE_AKS_CLUSTER_NAME }}
+          resource-group: ${{ env.AZURE_RESOURCE_GROUP }}
+          cluster-name: ${{ env.AZURE_AKS_CLUSTER_NAME }}
 
       - name: Create namespace if not exists
         run: |
@@ -102,7 +104,8 @@ jobs:
         run: |
           IMAGE_TAG="${{ env.DOCKERHUB_USERNAME }}/service-discovery:${{ github.sha }}"
           SPRING_PROFILE="${{ env.ENVIRONMENT }}"
-          sed "s|IMAGE_TAG|${IMAGE_TAG}|g; s|SPRING_PROFILE|${SPRING_PROFILE}|g" k8s/deployment-prod.yaml | kubectl apply -f - -n ${{ env.KUBERNETES_NAMESPACE }}
+          ZIPKIN_URL="${{ secrets.ZIPKIN_BASE_URL }}"
+          sed "s|IMAGE_TAG|${IMAGE_TAG}|g; s|SPRING_PROFILE|${SPRING_PROFILE}|g; s|ZIPKIN_BASE_URL|${ZIPKIN_URL}|g" k8s/deployment-prod.yaml | kubectl apply -f - -n ${{ env.KUBERNETES_NAMESPACE }}
           kubectl apply -f k8s/service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
 
       - name: Wait for deployment rollout

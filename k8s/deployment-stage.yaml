@@ -35,6 +35,8 @@ spec:
         env:
         - name: SPRING_PROFILES_ACTIVE
           value: "SPRING_PROFILE"
+        - name: SPRING_ZIPKIN_BASE_URL
+          value: "ZIPKIN_BASE_URL"
         - name: JAVA_OPTS
           value: "-Xms256m -Xmx512m"
         resources:
