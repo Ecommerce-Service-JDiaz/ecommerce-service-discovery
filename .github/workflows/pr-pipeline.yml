@@ -25,6 +25,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Make mvnw executable
+        run: chmod +x ./mvnw
+
       - name: Run tests
         run: ./mvnw clean test
 
@@ -99,6 +102,9 @@ jobs:
           else
             echo "No k8s directory found, skipping validation"
           fi
+
+      - name: Make mvnw executable
+        run: chmod +x ./mvnw
 
       - name: Check Maven POM
         run: ./mvnw validate
