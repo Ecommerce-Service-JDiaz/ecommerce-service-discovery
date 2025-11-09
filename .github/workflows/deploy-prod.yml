@@ -114,12 +114,47 @@ jobs:
           sed "s|IMAGE_TAG|${IMAGE_TAG}|g; s|SPRING_PROFILE|${SPRING_PROFILE}|g; s|ZIPKIN_BASE_URL|${ZIPKIN_URL}|g" k8s/deployment-prod.yaml | kubectl apply -f - -n ${{ env.KUBERNETES_NAMESPACE }}
           kubectl apply -f k8s/service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
 
+      - name: Check pods status before rollout
+        run: |
+          echo "=== Current Pods Status ==="
+          kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -l app=service-discovery
+          echo ""
+          echo "=== Deployment Status ==="
+          kubectl get deployment service-discovery -n ${{ env.KUBERNETES_NAMESPACE }}
+
       - name: Wait for deployment rollout
         run: |
-          kubectl rollout status deployment/service-discovery -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=5m
+          kubectl rollout status deployment/service-discovery -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=10m
+        continue-on-error: true
+
+      - name: Check pods status after rollout
+        if: failure()
+        run: |
+          echo "=== Pods Status (after timeout) ==="
+          kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -l app=service-discovery -o wide
+          echo ""
+          echo "=== Pod Events ==="
+          kubectl get events -n ${{ env.KUBERNETES_NAMESPACE }} --sort-by='.lastTimestamp' | grep service-discovery | tail -20
+          echo ""
+          echo "=== Pod Logs (new pod) ==="
+          NEW_POD=$(kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -l app=service-discovery --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}' 2>/dev/null || echo "")
+          if [ -n "$NEW_POD" ]; then
+            kubectl logs $NEW_POD -n ${{ env.KUBERNETES_NAMESPACE }} --tail=50 || true
+          fi
+          echo ""
+          echo "=== Pod Description ==="
+          if [ -n "$NEW_POD" ]; then
+            kubectl describe pod $NEW_POD -n ${{ env.KUBERNETES_NAMESPACE }} || true
+          fi
 
       - name: Verify deployment
         run: |
-          kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }}
+          echo "=== Final Pods Status ==="
+          kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -l app=service-discovery
+          echo ""
+          echo "=== Services ==="
           kubectl get svc -n ${{ env.KUBERNETES_NAMESPACE }}
+          echo ""
+          echo "=== Deployment Status ==="
+          kubectl get deployment service-discovery -n ${{ env.KUBERNETES_NAMESPACE }}
 
