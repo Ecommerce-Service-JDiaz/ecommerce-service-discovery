@@ -81,6 +81,8 @@ En GitHub Actions, se deben configurar los siguientes environments con sus respe
 - **Branch protection**: Solo desde `main`
 - **Required reviewers**: Configurar según políticas de la organización
 
+
+
 ### Staging Environment
 - **Nombre**: `staging`
 - **Branch protection**: Solo desde `staging`
