@@ -96,13 +96,15 @@ jobs:
 
       - name: Create Docker Hub secret (for private images)
         run: |
-          kubectl create secret docker-registry dockerhub-secret \
-            --docker-server=docker.io \
-            --docker-username=${{ secrets.DOCKERHUB_USERNAME }} \
-            --docker-password=${{ secrets.DOCKERHUB_TOKEN }} \
-            -n ${{ env.KUBERNETES_NAMESPACE }} \
-            --dry-run=client -o yaml | kubectl apply -f -
-        continue-on-error: true
+          if ! kubectl get secret dockerhub-secret -n "${{ env.KUBERNETES_NAMESPACE }}" &>/dev/null; then
+            kubectl create secret docker-registry dockerhub-secret \
+              --docker-server=docker.io \
+              --docker-username="${{ secrets.DOCKERHUB_USERNAME }}" \
+              --docker-password="${{ secrets.DOCKERHUB_TOKEN }}" \
+              -n "${{ env.KUBERNETES_NAMESPACE }}"
+          else
+            echo "Secret dockerhub-secret already exists, skipping creation"
+          fi
 
       - name: Deploy to Kubernetes
         run: |
