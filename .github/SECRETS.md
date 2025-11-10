@@ -88,8 +88,9 @@ En GitHub Actions, se deben configurar los siguientes environments con sus respe
 - **Branch protection**: Solo desde `staging`
 
 ### Development Environment
-- **Nombre**: `development`
+- **Nombre**: `dev`
 - **Branch protection**: Solo desde `develop`
+- **Nota**: El namespace de Kubernetes será `dev`
 
 ## Cómo Configurar los Secretos
 

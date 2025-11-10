@@ -10,7 +10,7 @@ env:
   REGISTRY: docker.io
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
   IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/service-discovery
-  KUBERNETES_NAMESPACE: development
+  KUBERNETES_NAMESPACE: dev
   ENVIRONMENT: dev
   PROJECT_VERSION: 0.1.0
   AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP_DEV }}
@@ -60,7 +60,7 @@ jobs:
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
-    environment: development
+    environment: dev
     
     steps:
       - name: Checkout code
