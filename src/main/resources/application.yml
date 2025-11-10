@@ -34,6 +34,9 @@ logging:
     brave: INFO
     zipkin2: INFO
     org.springframework.cloud.sleuth: DEBUG
+    com.selimhorri.app.config.ZipkinConnectionLogger: INFO
+    org.springframework.cloud.sleuth.zipkin2: INFO
+    zipkin2.reporter: INFO
 
 management:
   health:
