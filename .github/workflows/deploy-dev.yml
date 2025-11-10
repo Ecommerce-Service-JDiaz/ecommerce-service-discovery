@@ -106,11 +106,23 @@ jobs:
             echo "Secret dockerhub-secret already exists, skipping creation"
           fi
 
+      - name: Verify Zipkin configuration
+        run: |
+          if [ -z "${{ secrets.ZIPKIN_BASE_URL }}" ]; then
+            echo "Warning: ZIPKIN_BASE_URL secret is not set. Zipkin tracking may not work."
+          else
+            echo "Zipkin URL configured: ${{ secrets.ZIPKIN_BASE_URL }}"
+          fi
+
       - name: Deploy to Kubernetes
         run: |
           IMAGE_TAG="${{ env.DOCKERHUB_USERNAME }}/service-discovery:${{ github.sha }}"
           SPRING_PROFILE="${{ env.ENVIRONMENT }}"
           ZIPKIN_URL="${{ secrets.ZIPKIN_BASE_URL }}"
+          if [ -z "${ZIPKIN_URL}" ]; then
+            echo "Warning: ZIPKIN_BASE_URL is empty, using default localhost"
+            ZIPKIN_URL="http://localhost:9411/"
+          fi
           sed "s|IMAGE_TAG|${IMAGE_TAG}|g; s|SPRING_PROFILE|${SPRING_PROFILE}|g; s|ZIPKIN_BASE_URL|${ZIPKIN_URL}|g" k8s/deployment-dev.yaml | kubectl apply -f - -n ${{ env.KUBERNETES_NAMESPACE }}
           kubectl apply -f k8s/service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
 
@@ -140,6 +152,9 @@ jobs:
           NEW_POD=$(kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -l app=service-discovery --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}' 2>/dev/null || echo "")
           if [ -n "$NEW_POD" ]; then
             kubectl logs $NEW_POD -n ${{ env.KUBERNETES_NAMESPACE }} --tail=50 || true
+            echo ""
+            echo "=== Zipkin Configuration Check ==="
+            kubectl exec $NEW_POD -n ${{ env.KUBERNETES_NAMESPACE }} -- env | grep -i zipkin || echo "No ZIPKIN environment variables found"
           fi
           echo ""
           echo "=== Pod Description ==="
@@ -157,4 +172,16 @@ jobs:
           echo ""
           echo "=== Deployment Status ==="
           kubectl get deployment service-discovery -n ${{ env.KUBERNETES_NAMESPACE }}
+          echo ""
+          echo "=== Zipkin Configuration Verification ==="
+          RUNNING_POD=$(kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -l app=service-discovery --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          if [ -n "$RUNNING_POD" ]; then
+            echo "Checking Zipkin configuration in pod: $RUNNING_POD"
+            kubectl exec $RUNNING_POD -n ${{ env.KUBERNETES_NAMESPACE }} -- env | grep -i zipkin || echo "Warning: ZIPKIN environment variable not found"
+            echo ""
+            echo "Checking for Zipkin-related logs:"
+            kubectl logs $RUNNING_POD -n ${{ env.KUBERNETES_NAMESPACE }} | grep -i zipkin | tail -5 || echo "No Zipkin-related logs found (this is normal if no requests have been made)"
+          else
+            echo "No running pods found to verify Zipkin configuration"
+          fi
 

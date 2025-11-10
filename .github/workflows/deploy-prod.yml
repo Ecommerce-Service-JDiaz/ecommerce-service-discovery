@@ -106,11 +106,23 @@ jobs:
             echo "Secret dockerhub-secret already exists, skipping creation"
           fi
 
+      - name: Verify Zipkin configuration
+        run: |
+          if [ -z "${{ secrets.ZIPKIN_BASE_URL }}" ]; then
+            echo "Warning: ZIPKIN_BASE_URL secret is not set. Zipkin tracking may not work."
+          else
+            echo "Zipkin URL configured: ${{ secrets.ZIPKIN_BASE_URL }}"
+          fi
+
       - name: Deploy to Kubernetes
         run: |
           IMAGE_TAG="${{ env.DOCKERHUB_USERNAME }}/service-discovery:${{ github.sha }}"
           SPRING_PROFILE="${{ env.ENVIRONMENT }}"
           ZIPKIN_URL="${{ secrets.ZIPKIN_BASE_URL }}"
+          if [ -z "${ZIPKIN_URL}" ]; then
+            echo "Warning: ZIPKIN_BASE_URL is empty, using default localhost"
+            ZIPKIN_URL="http://localhost:9411/"
+          fi
           sed "s|IMAGE_TAG|${IMAGE_TAG}|g; s|SPRING_PROFILE|${SPRING_PROFILE}|g; s|ZIPKIN_BASE_URL|${ZIPKIN_URL}|g" k8s/deployment-prod.yaml | kubectl apply -f - -n ${{ env.KUBERNETES_NAMESPACE }}
           kubectl apply -f k8s/service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
 
