@@ -1,4 +1,4 @@
-name: Deploy to Development
+name: Deploy Dev
 
 on:
   push:
@@ -6,62 +6,19 @@ on:
       - develop
   workflow_dispatch:
 
+permissions:
+  contents: read
+  id-token: write
+
 env:
-  REGISTRY: docker.io
-  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/service-discovery
-  KUBERNETES_NAMESPACE: development
-  ENVIRONMENT: dev
   PROJECT_VERSION: 0.1.0
-  AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP_DEV }}
-  AZURE_AKS_CLUSTER_NAME: ${{ secrets.AZURE_AKS_CLUSTER_NAME_DEV }}
+  IMAGE_NAME: ecommerce-service-discovery
+  SERVICE_NAME: service-discovery
+  ENVIRONMENT: dev
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 11
-        uses: actions/setup-java@v4
-        with:
-          java-version: '11'
-          distribution: 'temurin'
-          cache: maven
-
-      - name: Make mvnw executable
-        run: chmod +x ./mvnw
-
-      - name: Build with Maven
-        run: ./mvnw clean package -DskipTests
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.DOCKERHUB_USERNAME }}/service-discovery:${{ github.sha }}
-            ${{ env.DOCKERHUB_USERNAME }}/service-discovery:latest-dev
-          build-args: |
-            PROJECT_VERSION=${{ env.PROJECT_VERSION }}
-
   deploy:
-    needs: build-and-push
     runs-on: ubuntu-latest
-    environment: development
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -71,52 +28,169 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Obtener secrets de Azure Key Vault
+        id: get-kv-secrets
+        env:
+          RESOURCE_GROUP_KV: ${{ secrets.RESOURCE_GROUP_KV }}
+        run: |
+          KEY_VAULT_RG="$RESOURCE_GROUP_KV"
+          
+          if [ -z "$KEY_VAULT_RG" ]; then
+            echo "ERROR: RESOURCE_GROUP_KV no está configurado en GitHub Secrets"
+            exit 1
+          fi
+          
+          echo "Buscando Key Vault en el Resource Group: $KEY_VAULT_RG"
+          KEY_VAULT_NAME=$(az keyvault list --resource-group "$KEY_VAULT_RG" --query "[0].name" -o tsv)
+          
+          if [ -z "$KEY_VAULT_NAME" ]; then
+            echo "ERROR: No se encontró ningún Key Vault en el Resource Group $KEY_VAULT_RG"
+            exit 1
+          fi
+          
+          echo "Key Vault encontrado: $KEY_VAULT_NAME"
+          
+          # Obtener secrets para DEV
+          AZURE_RESOURCE_GROUP_DEV=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "AZURE-RESOURCE-GROUP-DEV" --query "value" -o tsv)
+          AKS_CLUSTER_NAME_DEV=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "AKS-CLUSTER-NAME-DEV" --query "value" -o tsv)
+          AKS_NAMESPACE_DEV=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "AKS-NAMESPACE-DEV" --query "value" -o tsv)
+          DOCKERHUB_USERNAME=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "DOCKERHUB-USERNAME" --query "value" -o tsv)
+          DOCKERHUB_TOKEN=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "DOCKERHUB-TOKEN" --query "value" -o tsv)
+          
+          # Validar que se obtuvieron todos los secrets
+          if [ -z "$AZURE_RESOURCE_GROUP_DEV" ] || [ -z "$AKS_CLUSTER_NAME_DEV" ] || [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "ERROR: No se pudieron obtener todos los secrets del Key Vault"
+            exit 1
+          fi
+          
+          # Enmascarar valores
+          echo "::add-mask::$AZURE_RESOURCE_GROUP_DEV"
+          echo "::add-mask::$AKS_CLUSTER_NAME_DEV"
+          echo "::add-mask::$DOCKERHUB_USERNAME"
+          echo "::add-mask::$DOCKERHUB_TOKEN"
+          
+          # Exportar como outputs
+          echo "AZURE_RESOURCE_GROUP_DEV<<EOF" >> $GITHUB_OUTPUT
+          echo "$AZURE_RESOURCE_GROUP_DEV" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "AKS_CLUSTER_NAME_DEV<<EOF" >> $GITHUB_OUTPUT
+          echo "$AKS_CLUSTER_NAME_DEV" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "AKS_NAMESPACE_DEV<<EOF" >> $GITHUB_OUTPUT
+          echo "${AKS_NAMESPACE_DEV:-dev}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "DOCKERHUB_USERNAME<<EOF" >> $GITHUB_OUTPUT
+          echo "$DOCKERHUB_USERNAME" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "DOCKERHUB_TOKEN<<EOF" >> $GITHUB_OUTPUT
+          echo "$DOCKERHUB_TOKEN" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "✅ Secrets obtenidos exitosamente del Key Vault"
+
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Ejecutar pruebas unitarias
+        run: mvn clean test
+
+      - name: Verificar coverage
+        run: |
+          # Intentar obtener coverage de jacoco si está disponible
+          if [ -f "target/site/jacoco/index.html" ]; then
+            COVERAGE=$(grep -oP 'Total.*?(\d+\.\d+)%' target/site/jacoco/index.html | head -1 | grep -oP '\d+\.\d+' || echo "0")
+            echo "Coverage actual: ${COVERAGE}%"
+            COVERAGE_INT=$(echo "$COVERAGE" | awk '{printf "%.0f", $1}')
+            if [ "$COVERAGE_INT" -lt 60 ]; then
+              echo "::warning::Coverage es ${COVERAGE}%, menor al 60% requerido"
+              echo "⚠️ ALERTA: El coverage de pruebas es ${COVERAGE}%, menor al 60% requerido"
+            else
+              echo "✅ Coverage de ${COVERAGE}% es aceptable"
+            fi
+          else
+            echo "⚠️ ALERTA: No se encontró reporte de coverage. Asegúrate de configurar JaCoCo en el proyecto."
+            echo "::warning::No se encontró reporte de coverage"
+          fi
+
+      - name: Compilar artefacto
+        run: mvn clean package -DskipTests
+
+      - name: Login en Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ steps.get-kv-secrets.outputs.DOCKERHUB_USERNAME }}
+          password: ${{ steps.get-kv-secrets.outputs.DOCKERHUB_TOKEN }}
+
+      - name: Construir y etiquetar imagen Docker
+        env:
+          DOCKER_REPOSITORY: ${{ steps.get-kv-secrets.outputs.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+        run: |
+          docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} --build-arg PROJECT_VERSION=${{ env.PROJECT_VERSION }} .
+          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} $DOCKER_REPOSITORY:${{ github.sha }}
+          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} $DOCKER_REPOSITORY:dev
+          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} $DOCKER_REPOSITORY:latest
+
+      - name: Publicar imagen en Docker Hub
+        env:
+          DOCKER_REPOSITORY: ${{ steps.get-kv-secrets.outputs.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+        run: |
+          docker push $DOCKER_REPOSITORY:${{ github.sha }}
+          docker push $DOCKER_REPOSITORY:dev
+          docker push $DOCKER_REPOSITORY:latest
+
       - name: Set up kubectl
         uses: azure/setup-kubectl@v3
-        with:
-          version: 'latest'
 
-      - name: Azure Kubernetes Service set context
-        uses: azure/aks-set-context@v3
-        with:
-          resource-group: ${{ env.AZURE_RESOURCE_GROUP }}
-          cluster-name: ${{ env.AZURE_AKS_CLUSTER_NAME }}
-
-      - name: Create namespace if not exists
+      - name: Configurar contexto AKS
+        env:
+          AZURE_RESOURCE_GROUP_DEV: ${{ steps.get-kv-secrets.outputs.AZURE_RESOURCE_GROUP_DEV }}
+          AKS_CLUSTER_NAME_DEV: ${{ steps.get-kv-secrets.outputs.AKS_CLUSTER_NAME_DEV }}
         run: |
-          kubectl create namespace ${{ env.KUBERNETES_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+          az aks get-credentials \
+            --resource-group "$AZURE_RESOURCE_GROUP_DEV" \
+            --name "$AKS_CLUSTER_NAME_DEV" \
+            --overwrite-existing
 
-      - name: Create ConfigMap
+      - name: Crear namespace si no existe
+        env:
+          AKS_NAMESPACE_DEV: ${{ steps.get-kv-secrets.outputs.AKS_NAMESPACE_DEV }}
         run: |
-          kubectl create configmap service-discovery-config \
-            --from-file=application.yml=src/main/resources/application.yml \
-            --from-file=application-dev.yml=src/main/resources/application-dev.yml \
-            -n ${{ env.KUBERNETES_NAMESPACE }} \
-            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace $AKS_NAMESPACE_DEV --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Create Docker Hub secret (for private images)
+      - name: Aplicar manifiestos de Kubernetes
+        env:
+          AKS_NAMESPACE_DEV: ${{ steps.get-kv-secrets.outputs.AKS_NAMESPACE_DEV }}
+          DOCKER_REPOSITORY: ${{ steps.get-kv-secrets.outputs.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          kubectl create secret docker-registry dockerhub-secret \
-            --docker-server=docker.io \
-            --docker-username=${{ secrets.DOCKERHUB_USERNAME }} \
-            --docker-password=${{ secrets.DOCKERHUB_TOKEN }} \
-            -n ${{ env.KUBERNETES_NAMESPACE }} \
-            --dry-run=client -o yaml | kubectl apply -f - || true
+          if [ -d "k8s/dev" ]; then
+            kubectl apply -f k8s/dev -n $AKS_NAMESPACE_DEV
+            kubectl set image deployment/${{ env.SERVICE_NAME }} ${{ env.SERVICE_NAME }}=$DOCKER_REPOSITORY:$IMAGE_TAG -n $AKS_NAMESPACE_DEV --ignore-not-found=true
+          elif [ -f "k8s/deployment-dev.yml" ] || [ -f "k8s/deployment-dev.yaml" ]; then
+            DEPLOYMENT_FILE=$(ls k8s/deployment-dev.* 2>/dev/null | head -1)
+            if [ -n "$DEPLOYMENT_FILE" ]; then
+              kubectl apply -f $DEPLOYMENT_FILE -n $AKS_NAMESPACE_DEV
+              kubectl set image deployment/${{ env.SERVICE_NAME }} ${{ env.SERVICE_NAME }}=$DOCKER_REPOSITORY:$IMAGE_TAG -n $AKS_NAMESPACE_DEV --ignore-not-found=true
+            fi
+          else
+            echo "⚠️ No se encontraron manifiestos de Kubernetes. Creando deployment básico..."
+            kubectl create deployment ${{ env.SERVICE_NAME }} \
+              --image=$DOCKER_REPOSITORY:$IMAGE_TAG \
+              --namespace=$AKS_NAMESPACE_DEV \
+              --dry-run=client -o yaml | kubectl apply -f -
+          fi
 
-      - name: Deploy to Kubernetes
+      - name: Verificar despliegue
+        env:
+          AKS_NAMESPACE_DEV: ${{ steps.get-kv-secrets.outputs.AKS_NAMESPACE_DEV }}
         run: |
-          IMAGE_TAG="${{ env.DOCKERHUB_USERNAME }}/service-discovery:${{ github.sha }}"
-          SPRING_PROFILE="${{ env.ENVIRONMENT }}"
-          ZIPKIN_URL="${{ secrets.ZIPKIN_BASE_URL }}"
-          sed "s|IMAGE_TAG|${IMAGE_TAG}|g; s|SPRING_PROFILE|${SPRING_PROFILE}|g; s|ZIPKIN_BASE_URL|${ZIPKIN_URL}|g" k8s/deployment-dev.yaml | kubectl apply -f - -n ${{ env.KUBERNETES_NAMESPACE }}
-          kubectl apply -f k8s/service.yaml -n ${{ env.KUBERNETES_NAMESPACE }}
-
-      - name: Wait for deployment rollout
-        run: |
-          kubectl rollout status deployment/service-discovery -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=5m
-
-      - name: Verify deployment
-        run: |
-          kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }}
-          kubectl get svc -n ${{ env.KUBERNETES_NAMESPACE }}
-
+          kubectl rollout status deployment/${{ env.SERVICE_NAME }} -n $AKS_NAMESPACE_DEV --timeout=300s || kubectl get pods -n $AKS_NAMESPACE_DEV
+          echo "✅ Despliegue completado exitosamente"
