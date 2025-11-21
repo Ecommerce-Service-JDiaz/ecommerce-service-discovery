@@ -100,7 +100,7 @@ jobs:
           cache: maven
 
       - name: Ejecutar pruebas unitarias
-        run: mvn clean test
+        run: mvn clean test jacoco:report
 
       - name: Verificar coverage
         run: |
