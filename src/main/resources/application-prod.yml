@@ -10,8 +10,8 @@ management:
 
 logging:
   file:
-    name: src/main/resources/script/prod_log.log
-    clean-history-on-start: false
+    name: ${LOG_FILE_PATH:/var/log/service-discovery/prod_log.log}
+    clean-history-on-start: ${LOG_CLEAN_HISTORY_ON_START:false}
   level:
     org:
       hibernate:

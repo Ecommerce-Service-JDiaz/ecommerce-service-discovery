@@ -3,7 +3,7 @@ name: Deploy Dev
 on:
   push:
     branches:
-      - develop
+      - development
   workflow_dispatch:
 
 permissions:
@@ -165,27 +165,76 @@ jobs:
         run: |
           kubectl create namespace $AKS_NAMESPACE_DEV --dry-run=client -o yaml | kubectl apply -f -
 
+      - name: Instalar envsubst
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext-base
+
+      - name: Crear o actualizar ConfigMap
+        env:
+          AKS_NAMESPACE_DEV: ${{ steps.get-kv-secrets.outputs.AKS_NAMESPACE_DEV }}
+          DOCKER_REPOSITORY: ${{ steps.get-kv-secrets.outputs.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+        run: |
+          export NAMESPACE=$AKS_NAMESPACE_DEV
+          export SPRING_PROFILE=${{ env.ENVIRONMENT }}
+          export ZIPKIN_BASE_URL="http://zipkin:9411/"
+          export JAVA_OPTS="-Xms256m -Xmx512m"
+          export CONFIGMAP_NAME="service-discovery-config"
+          export LOG_FILE_PATH="/var/log/service-discovery/${SPRING_PROFILE}_log.log"
+          export LOG_CLEAN_HISTORY_ON_START="false"
+          
+          # Crear ConfigMap usando envsubst
+          envsubst < k8s/configmap-template.yaml | kubectl apply -f -
+          
+          echo "✅ ConfigMap creado/actualizado exitosamente"
+
+      - name: Crear Secret de Docker Hub si no existe
+        env:
+          AKS_NAMESPACE_DEV: ${{ steps.get-kv-secrets.outputs.AKS_NAMESPACE_DEV }}
+          DOCKERHUB_USERNAME: ${{ steps.get-kv-secrets.outputs.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ steps.get-kv-secrets.outputs.DOCKERHUB_TOKEN }}
+        run: |
+          SECRET_NAME="dockerhub-secret"
+          
+          # Verificar si el secret ya existe
+          if kubectl get secret $SECRET_NAME -n $AKS_NAMESPACE_DEV &>/dev/null; then
+            echo "Secret $SECRET_NAME ya existe, actualizando..."
+            kubectl delete secret $SECRET_NAME -n $AKS_NAMESPACE_DEV
+          fi
+          
+          # Crear secret de Docker Hub
+          kubectl create secret docker-registry $SECRET_NAME \
+            --docker-server=https://index.docker.io/v1/ \
+            --docker-username="$DOCKERHUB_USERNAME" \
+            --docker-password="$DOCKERHUB_TOKEN" \
+            --namespace=$AKS_NAMESPACE_DEV
+          
+          echo "✅ Secret de Docker Hub creado/actualizado exitosamente"
+
       - name: Aplicar manifiestos de Kubernetes
         env:
           AKS_NAMESPACE_DEV: ${{ steps.get-kv-secrets.outputs.AKS_NAMESPACE_DEV }}
           DOCKER_REPOSITORY: ${{ steps.get-kv-secrets.outputs.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          if [ -d "k8s/dev" ]; then
-            kubectl apply -f k8s/dev -n $AKS_NAMESPACE_DEV
-            kubectl set image deployment/${{ env.SERVICE_NAME }} ${{ env.SERVICE_NAME }}=$DOCKER_REPOSITORY:$IMAGE_TAG -n $AKS_NAMESPACE_DEV --ignore-not-found=true
-          elif [ -f "k8s/deployment-dev.yml" ] || [ -f "k8s/deployment-dev.yaml" ]; then
+          export NAMESPACE=$AKS_NAMESPACE_DEV
+          export ENVIRONMENT=${{ env.ENVIRONMENT }}
+          export IMAGE_TAG=$DOCKER_REPOSITORY:$IMAGE_TAG
+          export DOCKERHUB_SECRET_NAME="dockerhub-secret"
+          export CONFIGMAP_NAME="service-discovery-config"
+          export SPRING_PROFILE=${{ env.ENVIRONMENT }}
+          export ZIPKIN_BASE_URL="http://zipkin:9411/"
+          
+          if [ -f "k8s/deployment-dev.yml" ] || [ -f "k8s/deployment-dev.yaml" ]; then
             DEPLOYMENT_FILE=$(ls k8s/deployment-dev.* 2>/dev/null | head -1)
             if [ -n "$DEPLOYMENT_FILE" ]; then
-              kubectl apply -f $DEPLOYMENT_FILE -n $AKS_NAMESPACE_DEV
-              kubectl set image deployment/${{ env.SERVICE_NAME }} ${{ env.SERVICE_NAME }}=$DOCKER_REPOSITORY:$IMAGE_TAG -n $AKS_NAMESPACE_DEV --ignore-not-found=true
+              echo "Aplicando deployment con variables reemplazadas..."
+              envsubst < $DEPLOYMENT_FILE | kubectl apply -f -
+              echo "✅ Deployment aplicado exitosamente"
             fi
           else
-            echo "⚠️ No se encontraron manifiestos de Kubernetes. Creando deployment básico..."
-            kubectl create deployment ${{ env.SERVICE_NAME }} \
-              --image=$DOCKER_REPOSITORY:$IMAGE_TAG \
-              --namespace=$AKS_NAMESPACE_DEV \
-              --dry-run=client -o yaml | kubectl apply -f -
+            echo "⚠️ No se encontró archivo deployment-dev.yaml"
+            exit 1
           fi
 
       - name: Verificar despliegue

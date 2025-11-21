@@ -2,9 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: service-discovery
+  namespace: ${NAMESPACE}
   labels:
     app: service-discovery
-    environment: development
+    environment: ${ENVIRONMENT}
     version: v1
 spec:
   replicas: 1
@@ -20,25 +21,21 @@ spec:
     metadata:
       labels:
         app: service-discovery
-        environment: development
+        environment: ${ENVIRONMENT}
     spec:
       imagePullSecrets:
-      - name: dockerhub-secret
+      - name: ${DOCKERHUB_SECRET_NAME}
       containers:
       - name: service-discovery
-        image: IMAGE_TAG
+        image: ${IMAGE_TAG}
         imagePullPolicy: Always
         ports:
         - containerPort: 8761
           name: http
           protocol: TCP
-        env:
-        - name: SPRING_PROFILES_ACTIVE
-          value: "SPRING_PROFILE"
-        - name: SPRING_ZIPKIN_BASE_URL
-          value: "ZIPKIN_BASE_URL"
-        - name: JAVA_OPTS
-          value: "-Xms256m -Xmx512m"
+        envFrom:
+        - configMapRef:
+            name: ${CONFIGMAP_NAME}
         resources:
           requests:
             memory: "256Mi"
@@ -62,13 +59,4 @@ spec:
           periodSeconds: 15
           timeoutSeconds: 5
           failureThreshold: 3
-        volumeMounts:
-        - name: config
-          mountPath: /home/app/config
-          readOnly: true
-      volumes:
-      - name: config
-        configMap:
-          name: service-discovery-config
       restartPolicy: Always
-

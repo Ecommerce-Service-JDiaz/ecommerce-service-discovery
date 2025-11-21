@@ -10,8 +10,8 @@ management:
 
 logging:
   file:
-    name: src/main/resources/script/stage_log.log
-    clean-history-on-start: true
+    name: ${LOG_FILE_PATH:/var/log/service-discovery/stage_log.log}
+    clean-history-on-start: ${LOG_CLEAN_HISTORY_ON_START:true}
   level:
     org:
       hibernate:
