@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: service-discovery
-  namespace: ${NAMESPACE}
+  namespace: dev
   labels:
     app: service-discovery
 spec:
@@ -14,5 +14,4 @@ spec:
     name: http
   selector:
     app: service-discovery
-
 

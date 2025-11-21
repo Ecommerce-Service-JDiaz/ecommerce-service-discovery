@@ -236,6 +236,13 @@ jobs:
             echo "⚠️ No se encontró archivo deployment-dev.yaml"
             exit 1
           fi
+          
+          # Aplicar Service si existe
+          if [ -f "k8s/service.yaml" ]; then
+            echo "Aplicando service con variables reemplazadas..."
+            envsubst < k8s/service.yaml | kubectl apply -f -
+            echo "✅ Service aplicado exitosamente"
+          fi
 
       - name: Verificar despliegue
         env:
