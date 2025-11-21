@@ -45,17 +45,17 @@ spec:
             cpu: "200m"
         livenessProbe:
           httpGet:
-            path: /actuator/health/liveness
+            path: /actuator/health
             port: 8761
-          initialDelaySeconds: 90
+          initialDelaySeconds: 120
           periodSeconds: 15
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /actuator/health/readiness
+            path: /actuator/health
             port: 8761
-          initialDelaySeconds: 45
+          initialDelaySeconds: 90
           periodSeconds: 15
           timeoutSeconds: 5
           failureThreshold: 3
