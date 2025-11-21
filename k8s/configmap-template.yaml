@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: service-discovery-config
+  name: service-discovery-config-${ENVIRONMENT}
   namespace: ${NAMESPACE}
 data:
   SPRING_PROFILES_ACTIVE: "${SPRING_PROFILE}"
   SPRING_ZIPKIN_BASE_URL: "${ZIPKIN_BASE_URL}"
-  JAVA_OPTS: "${JAVA_OPTS:-Xms256m -Xmx512m}"
-  LOG_FILE_PATH: "${LOG_FILE_PATH:-/var/log/service-discovery/${SPRING_PROFILE}_log.log}"
-  LOG_CLEAN_HISTORY_ON_START: "${LOG_CLEAN_HISTORY_ON_START:-false}"
+  JAVA_OPTS: "${JAVA_OPTS}"
+  LOG_FILE_PATH: "${LOG_FILE_PATH}"
+  LOG_CLEAN_HISTORY_ON_START: "${LOG_CLEAN_HISTORY_ON_START}"
 
