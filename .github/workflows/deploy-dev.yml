@@ -179,7 +179,7 @@ jobs:
           export ENVIRONMENT=${{ env.ENVIRONMENT }}
           export SPRING_PROFILE=${{ env.ENVIRONMENT }}
           export ZIPKIN_BASE_URL="http://zipkin:9411/"
-          export JAVA_OPTS="-Xms256m -Xmx512m"
+          export JAVA_OPTS="-Xms64m -Xmx192m"
           export LOG_FILE_PATH="/var/log/service-discovery/${SPRING_PROFILE}_log.log"
           export LOG_CLEAN_HISTORY_ON_START="false"
           
