@@ -25,9 +25,24 @@ management:
   health:
     circuitbreakers:
       enabled: true
+    probes:
+      enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+      environment: ${spring.profiles.active}
   endpoint:
     health:
       show-details: always
+      probes:
+        enabled: true
 
 
 
